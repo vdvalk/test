@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<title>Graphulus: 3D Functions (Three.js)</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<link rel=stylesheet href="css/base.css"/>
+</head> 
+<body>
+<style>
+  #byte_content {
+    margin: 5px 0;
+    max-height: 100px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  #byte_range { margin-top: 5px; }
+</style>
+
+<script src="js/Three.js"></script>
+<script src="js/Detector.js"></script>
+<script src="js/Stats.js"></script>
+<script src="js/TrackballControls.js"></script>
+<script src="js/THREEx.KeyboardState.js"></script>
+<script src="js/THREEx.FullScreen.js"></script>
+<script src="js/THREEx.WindowResize.js"></script>
+
+<script type='text/javascript' src='js/DAT.GUI.min.js'></script>
+
+<!-- http://silentmatt.com/javascript-expression-evaluator/ -->
+<script src="js/parser.js"></script>
+
+<!-- jQuery code to display an information button and box when clicked. -->
+<script src="js/jquery-1.9.1.js"></script>
+<script src="js/jquery-ui.js"></script>
+<link rel=stylesheet href="css/jquery-ui.css" />
+<link rel=stylesheet href="css/info.css"/>
+<script src="js/info.js"></script>
+<div id="infoButton"></div>
+<div id="infoBox" title="Demo Information">
+This three.js demo is part of a collection at
+<a href="http://stemkoski.github.io/Three.js/">http://stemkoski.github.io/Three.js/</a>
+</div>
+<!-- ------------------------------------------------------------ -->
+
+<div id="ThreeJS" style="position: absolute; left:0px; top:0px"></div>
+
+<input type="file" id="files" name="file" /> 
+<span class="PlotFileButton">
+  <button>Plot File</button>
+</span>
+<div id="byte_range"></div>
+<div id="byte_content"></div>
+
+
+<script>
+/*
+	Three.js "tutorials by example"
+	Author: Lee Stemkoski
+	Date: July 2013 (three.js v59dev)
+
+    Modified: Leon Vandervalk December 2013 to support reading RTR surface plot data for incorportion into PosiSoft
+
+
+*/
+
+// MAIN
+
+// standard global variables
+var container, scene, camera, renderer, controls, stats;
+var keyboard = new THREEx.KeyboardState();
+var clock = new THREE.Clock();
+
+var meshFunction;
+var segments = 256, 
+	xMin = 0, xMax = 1024, xRange = xMax - xMin,
+	yMin = 0, yMax = 1024, yRange = yMax - yMin,
+	zMin = 0, zMax = 2048, zRange = zMax - zMin;
+	
+var graphGeometry;
+var gridMaterial, wireMaterial, vertexColorMaterial;
+var graphMesh;
+//var 3Dimage;
+//init();
+//animate();
+
+// FUNCTIONS 		
+
+function readFile_pgm() {
+
+    var files = document.getElementById('files').files;
+    if (!files.length) {
+      alert('Please select a file!');
+      return;
+    }
+    
+    var file = files[0];
+    var start = 0;
+    var stop = file.size - 1;
+    
+    var reader = new FileReader();
+    
+    // If we use onloadend, we need to check the readyState.
+    reader.onloadend = function(evt) {
+      if (evt.target.readyState == FileReader.DONE) { // DONE == 2
+        
+         var RawImage = reader.result;
+         var RawImageView = new DataView(RawImage);
+          console.log(RawImageView.byteLength);
+//        document.getElementById('byte_content').textContent = RawImageView;
+//        document.getElementById('byte_range').textContent = 
+//            ['Read bytes: ', start + 1, ' - ', stop + 1,
+//             ' of ', file.size, ' byte file'].join('');
+        var magic = RawImageView.getUint16(0,false);   // get magic number for PGM "P5"
+//        document.getElementById('byte_content').textContent = magic;
+         switch(magic) {
+            case 0x5035: 
+            init();
+    	    createGraph(RawImageView);
+            resetCamera();
+            animate();
+
+
+             break;
+            default: alert('file format not supported'); break;
+         } 
+
+      }
+    };
+    
+    var blob = file.slice(start, stop + 1); // ignor header bytes...just read the file 1024x1024x16bit grayscale
+    reader.readAsArrayBuffer(blob);
+}
+
+document.querySelector('.PlotFileButton').addEventListener('click', function(evt) {
+if (evt.target.tagName.toLowerCase() == 'button') {
+  readFile_pgm();
+}
+}, false);
+
+
+
+function init() 
+{
+	// SCENE
+	scene = new THREE.Scene();
+	// CAMERA
+	var SCREEN_WIDTH = window.innerWidth, SCREEN_HEIGHT = window.innerHeight;
+	var VIEW_ANGLE = 45, ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT, NEAR = 0.1, FAR = 20000;
+	camera = new THREE.PerspectiveCamera( VIEW_ANGLE, ASPECT, NEAR, FAR);
+	scene.add(camera);
+	camera.position.set(0,150,400);
+	camera.lookAt(scene.position);	
+	// RENDERER
+	if ( Detector.webgl )
+		renderer = new THREE.WebGLRenderer( {antialias:true} );
+	else
+		renderer = new THREE.CanvasRenderer(); 
+	renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+	container = document.getElementById( 'ThreeJS' );
+	container.appendChild( renderer.domElement );
+	// EVENTS
+	THREEx.WindowResize(renderer, camera);
+	THREEx.FullScreen.bindKey({ charCode : 'm'.charCodeAt(0) });
+	// CONTROLS
+	controls = new THREE.TrackballControls( camera, renderer.domElement );
+	// STATS
+//	stats = new Stats();
+//	stats.domElement.style.position = 'absolute';
+//	stats.domElement.style.bottom = '0px';
+//	stats.domElement.style.zIndex = 100;
+//	container.appendChild( stats.domElement );
+	// LIGHT
+	var light = new THREE.PointLight(0xffffff);
+	light.position.set(0,250,0);
+	scene.add(light);
+	// SKYBOX/FOG
+	// scene.fog = new THREE.FogExp2( 0x888888, 0.00025 );
+	
+	////////////
+	// CUSTOM //
+	////////////
+	
+	scene.add( new THREE.AxisHelper() );
+
+	// wireframe for xy-plane
+	var wireframeMaterial = new THREE.MeshBasicMaterial( { color: 0x000088, wireframe: true, side:THREE.DoubleSide } ); 
+	var floorGeometry = new THREE.PlaneGeometry(10,10,10,10);
+	var floor = new THREE.Mesh(floorGeometry, wireframeMaterial);
+	floor.position.z = -0.01;
+	// rotate to lie in x-y plane
+	// floor.rotation.x = Math.PI / 2;
+	scene.add(floor);
+	
+	var normMaterial = new THREE.MeshNormalMaterial;
+	var shadeMaterial = new THREE.MeshLambertMaterial( { color: 0xff0000 } );
+	
+	// "wireframe texture"
+	var wireTexture = new THREE.ImageUtils.loadTexture( 'images/square.png' );
+	wireTexture.wrapS = wireTexture.wrapT = THREE.RepeatWrapping; 
+	wireTexture.repeat.set( 40, 40 );
+	wireMaterial = new THREE.MeshBasicMaterial( { map: wireTexture, vertexColors: THREE.VertexColors, side:THREE.DoubleSide } );
+
+	var vertexColorMaterial  = new THREE.MeshBasicMaterial( { vertexColors: THREE.VertexColors } );
+
+	// bgcolor
+	renderer.setClearColor( 0x888888, 1 );
+
+}
+
+function createGraph(ImageView)
+{
+	xRange = xMax - xMin;
+	yRange = yMax - yMin;
+//	zFunc = Parser.parse(zFuncText).toJSFunction( ['x','y'] );
+	meshFunction = function(x, y) 
+	{
+		x = xRange * x + xMin;
+		y = yRange * y + yMin;
+        if (x==1010 && y==1010) {
+		console.log(x,y, ImageView.getUint16(x*2+y*(yRange*2)+y*2+19,false));
+      }
+        //console.log(ImageView.getUint16(x+y*yRange+18,false));
+        if ((x<512 && y<512)) {
+            var z = ImageView.getUint16(x*2+y*(yRange*2)+y*2+19,false)/16;  // get data from file
+        
+//		var z = x;
+		if ( isNaN(z) )
+			return new THREE.Vector3(0,0,0); // TODO: better fix
+		else
+			return new THREE.Vector3(x, y, z);
+        } else 
+            return new THREE.Vector3(0,0,0); // TODO: better fix
+
+};
+	
+	// true => sensible image tile repeat...
+	graphGeometry = new THREE.ParametricGeometry( meshFunction, segments, segments, true );
+	
+	///////////////////////////////////////////////
+	// calculate vertex colors based on Z values //
+	///////////////////////////////////////////////
+	graphGeometry.computeBoundingBox();
+	zMin = graphGeometry.boundingBox.min.z;
+	zMax = graphGeometry.boundingBox.max.z;
+	zRange = zMax - zMin;
+
+    console.log("Z Geometry", zMin, zMax, zRange);
+
+	var color, point, face, numberOfSides, vertexIndex;
+	// faces are indexed using characters
+	var faceIndices = [ 'a', 'b', 'c', 'd' ];
+	// first, assign colors to vertices as desired
+	for ( var i = 0; i < graphGeometry.vertices.length; i++ ) 
+	{
+		point = graphGeometry.vertices[ i ];
+		color = new THREE.Color( 0x0000ff );
+		color.setHSL( 0.7 * (zMax - point.z) / zRange, 1, 0.5 );
+		graphGeometry.colors[i] = color; // use this array for convenience
+	}
+	// copy the colors as necessary to the face's vertexColors array.
+	for ( var i = 0; i < graphGeometry.faces.length; i++ ) 
+	{
+		face = graphGeometry.faces[ i ];
+		numberOfSides = ( face instanceof THREE.Face3 ) ? 3 : 4;
+		for( var j = 0; j < numberOfSides; j++ ) 
+		{
+			vertexIndex = face[ faceIndices[ j ] ];
+			face.vertexColors[ j ] = graphGeometry.colors[ vertexIndex ];
+		}
+	}
+	///////////////////////
+	// end vertex colors //
+	///////////////////////
+	
+	// material choices: vertexColorMaterial, wireMaterial , normMaterial , shadeMaterial
+	
+	if (graphMesh) 
+	{
+		scene.remove( graphMesh );
+		// renderer.deallocateObject( graphMesh );
+	}
+
+	wireMaterial.map.repeat.set( segments, segments );
+	
+	graphMesh = new THREE.Mesh( graphGeometry, wireMaterial );
+	graphMesh.doubleSided = true;
+	scene.add(graphMesh);
+}
+
+		
+function resetCamera()
+{
+	// CAMERA
+	var SCREEN_WIDTH = window.innerWidth, SCREEN_HEIGHT = window.innerHeight;
+	var VIEW_ANGLE = 45, ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT, NEAR = 0.1, FAR = 20000;
+	camera = new THREE.PerspectiveCamera( VIEW_ANGLE, ASPECT, NEAR, FAR);
+	camera.position.set( 2*xMax, 0.5*yMax, 4*zMax);
+	camera.up = new THREE.Vector3( 0, 0, 1 );
+	camera.lookAt(scene.position);	
+	scene.add(camera);
+	
+	controls = new THREE.TrackballControls( camera, renderer.domElement );
+	THREEx.WindowResize(renderer, camera);
+}
+
+function animate() 
+{
+    requestAnimationFrame( animate );
+	render();		
+	update();
+}
+
+function update()
+{
+	if ( keyboard.pressed("z") ) 
+	{ 
+		// do something
+	}
+	
+	controls.update();
+}
+
+function render() 
+{
+	renderer.render( scene, camera );
+}
+
+
+
+
+</script>
+
+</body>
+</html>
+
